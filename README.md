@@ -39,8 +39,11 @@ https://westorehub.com [desktop 1440x900, above the fold] deepgaze2e on mps, cen
   element, and a desktop-versus-mobile comparison.
 - **A measured answer for one element**: `--target "#cta"` reports the share of attention
   inside your call to action, before and after a change.
-- **Machine-readable output** (`hotspots.json`) and a `/gaze-review` skill for Claude
-  Code that turns the numbers into a critique with prioritized fixes.
+- **Before and after**: `compare` puts two runs side by side and reports the change in
+  each target's share.
+- **Machine-readable output** (`hotspots.json`) and two Claude Code skills: `/gaze-review`
+  turns the numbers into a critique with prioritized fixes, `/gaze-fix` applies the top
+  fix on a branch and proves it with the numbers.
 
 ## Why gazemap
 
@@ -178,6 +181,21 @@ an icon column, or a colored sidebar steal the first look? It does not model a r
 who scans top-left down for a title, a company, and dates. Two-column layouts list both
 columns' lines under a hotspot.
 
+### Before and after
+
+```bash
+uv run gazemap analyze http://localhost:3000 --viewport both --target "#cta" --out compare/before
+# change the page
+uv run gazemap analyze http://localhost:3000 --viewport both --target "#cta" --out compare/after
+uv run gazemap compare compare/before/localhost-3000 compare/after/localhost-3000
+```
+
+`compare` pairs the viewports of two runs and writes, per viewport, a side-by-side image of
+the two overlays with the target boxes marked and the shares in the header, plus
+`compare.json` with each target's share before, after, and the change in points, and the
+top hotspots on both sides. Same server, same flags, same targets on both sides, or the
+numbers are not comparable.
+
 ### Report
 
 Every run writes a self-contained HTML report to `~/Desktop/gazemap-reports/`, one file
@@ -314,15 +332,29 @@ to the HTML reports in `~/Desktop/gazemap-reports/`.
 
 The split is deliberate: the saliency model supplies the numbers, the language model
 supplies the interpretation, and every claim in the review has to point at a number.
-To use the skill from any project, link or copy the folder into `~/.claude/skills/` and
-set `GAZEMAP_HOME` to the checkout.
+
+### Verified fixes with `/gaze-fix`
+
+```
+/gaze-fix http://localhost:3000 ~/code/my-site
+```
+
+The second skill, in `.claude/skills/gaze-fix/`, takes the top suggestion from
+`review.md` and proves it. It measures the page on your dev server, finds the element in
+the repository, proposes the smallest diff that implements the suggestion, and stops
+until you say yes. Then it creates a `gaze-fix/<name>` branch, applies the change without
+committing, re-runs gazemap with the same flags, runs `compare`, and writes `fix.md` with
+the before and after shares per viewport, the diff, and the side-by-side overlays. A
+change that does not move the target's share is reported as such, with a revert command.
+
+To use either skill from any project, link or copy the folders into `~/.claude/skills/`
+and set `GAZEMAP_HOME` to the checkout.
 
 ## Roadmap
 
-- A `/gaze-fix` step: propose a code change for the top suggestion in `review.md`, apply
-  it on a branch after approval, re-run gazemap on the dev server, and show before and
-  after with the change in the target's attention share.
 - UMSI as a second model, for graphic designs, documents, and mobile UI.
+- A batch mode for a list of URLs, and a CI check that fails when a target's share drops
+  below a threshold.
 
 ## Models and licenses
 
@@ -357,7 +389,7 @@ If you use the model in published work, cite the DeepGaze IIE paper:
 ## Development
 
 ```bash
-uv run pytest                  # 60 tests, about 45 s with weights and Chromium present
+uv run pytest                  # 64 tests, about 45 s with weights and Chromium present
 uv run pytest -m "not smoke"   # unit and capture tests only, no model needed
 ```
 
@@ -377,6 +409,7 @@ src/gazemap/
   hotspots.py             peaks, suppression, regions, attention share
   render.py               heatmap and overlay images
   report.py               self-contained HTML report
+  compare.py              before/after deltas and side-by-side overlays
   saliency/__init__.py    SaliencyModel protocol and load_model()
   saliency/deepgaze.py    DeepGaze IIE: downloads, device, prediction
   saliency/backbones.py   backbone architectures rebuilt without downloads

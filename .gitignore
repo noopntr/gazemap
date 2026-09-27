@@ -16,3 +16,6 @@ runs/
 
 # Local preview helper for the desktop app
 .claude/launch.json
+
+# Before/after working directories of the gaze-fix skill
+compare/

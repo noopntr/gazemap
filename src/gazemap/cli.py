@@ -15,6 +15,7 @@ os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 from PIL import Image  # noqa: E402
 
 from gazemap.capture import VIEWPORTS, CaptureError, PageSession, Viewport  # noqa: E402
+from gazemap.compare import compare_runs, print_comparison  # noqa: E402
 from gazemap.document import is_document_path, load_document  # noqa: E402
 from gazemap.hotspots import Hotspot, find_hotspots  # noqa: E402
 from gazemap.maps import normalize_unit, stitch_windows  # noqa: E402
@@ -284,11 +285,25 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SELECTOR",
         help="element whose attention share to measure, as a CSS or Playwright selector (repeatable, web pages only)",
     )
+
+    compare = commands.add_parser("compare", help="compare two runs: target share deltas and side-by-side overlays")
+    compare.add_argument("before", metavar="BEFORE_DIR", help="run directory, e.g. runs/<slug> or runs/<slug>/desktop")
+    compare.add_argument("after", metavar="AFTER_DIR")
+    compare.add_argument("--out", default=None, metavar="DIR", help="output directory (default: AFTER_DIR/compare)")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "compare":
+        try:
+            result = compare_runs(args.before, args.after, args.out or Path(args.after) / "compare")
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print_comparison(result)
+        return 0
+
     target = args.url
     document = is_document_path(target)
     if document and not Path(target).expanduser().is_file():
