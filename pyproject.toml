@@ -1,9 +1,33 @@
 [project]
 name = "gazemap"
 version = "0.1.0"
-description = "Local attention heatmaps for web pages using a saliency model"
+description = "Predict where people look first on a web page, screenshot, or PDF: local attention heatmaps from a saliency model, no API keys"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Nodo Kobakhidze" }]
+keywords = [
+    "attention-heatmap",
+    "saliency",
+    "eye-tracking",
+    "visual-attention",
+    "deepgaze",
+    "ux",
+    "design-review",
+    "playwright",
+    "heatmap",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Topic :: Software Development :: User Interfaces",
+]
 dependencies = [
     "torch>=2.4",
     "torchvision>=0.19",
@@ -14,6 +38,10 @@ dependencies = [
     "deepgaze-pytorch",
     "pypdfium2>=5.13.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/noopntr/gazemap"
+Issues = "https://github.com/noopntr/gazemap/issues"
 
 [project.scripts]
 gazemap = "gazemap.cli:main"

@@ -1,58 +1,131 @@
 # gazemap
 
-Local attention heatmaps for web pages. Give it a URL, it captures the page above the
-fold, runs the DeepGaze IIE saliency model on the screenshot, and tells you where a
-first-time viewer is most likely to look and which DOM elements sit there.
+**Predict where people look first on a web page, screenshot, or PDF.** gazemap turns a
+URL or a file into an attention heatmap, ranks the hotspots, and tells you which DOM
+element or line of text sits under each one. It runs entirely on your machine with an
+open-source saliency model: free, offline, no API keys, no accounts.
 
-Everything runs on your machine. No API keys, no cloud services, no language or vision
-model in the loop. The heatmap comes from a dedicated fixation-prediction model.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
+[![PyTorch on Apple Silicon](https://img.shields.io/badge/pytorch-MPS%20%2B%20CPU-ee4c2c.svg)](#runtime)
+[![Model: DeepGaze IIE](https://img.shields.io/badge/model-DeepGaze%20IIE-6a5acd.svg)](#models-and-licenses)
+
+![Attention heatmap overlay of a landing page: five numbered hotspots on the headline, predicted by gazemap](docs/example-overlay.png)
 
 ```
-$ uv run gazemap analyze https://www.wikipedia.org --viewport both
+$ uv run gazemap analyze https://westorehub.com --viewport both
 loaded deepgaze2e on mps in 2.5s
-https://www.wikipedia.org [desktop 1440x900] deepgaze2e on mps: capture 1.27s, inference 1.4s
-   1    5.6%  nav #www-wikipedia-org > main > nav.central-featured "English 7,237,000+ articles ..."
-   2    7.7%  span #js-lang-list-button > span.lang-list-button-text.jsl10n "Read Wikipedia in your language"
-   3    3.1%  strong div.central-textlogo > h1.central-textlogo-wrapper > strong.jsl10n.localized-slogan "The Free Encyclopedia"
-   4    3.6%  small #js-link-box-pl > small "1 707 000+ haseł"
-   5    4.5%  small #js-link-box-pt > small "1.181.000+ artigos"
-  -> runs/wikipedia.org/desktop/overlay.png
+https://westorehub.com [desktop 1440x900, above the fold] deepgaze2e on mps, centerbias mit1003: capture 1.6s, inference 1.5s
+   1   11.9%  span h1.text-4xl > span.block.bg-gradient-to-r "for rent in Georgia."
+   2    4.7%  span h1.text-4xl > span.block.bg-gradient-to-r "for rent in Georgia."
+   3    5.0%  span h1.text-4xl > span.block.bg-gradient-to-r "for rent in Georgia."
+   4    8.6%  h1 div.mx-auto.grid > div:nth-of-type(1) > h1.text-4xl "Find warehouse space for rent in Georgia."
+   5    4.4%  span h1.text-4xl > span.block.bg-gradient-to-r "for rent in Georgia."
+  -> runs/westorehub.com/desktop/overlay.png
+  report: ~/Desktop/gazemap-reports/westorehub.com.html
 ```
 
-## Setup
+## What it does
 
-Requires macOS on Apple Silicon (PyTorch uses the MPS device, with CPU fallback) and
-[uv](https://docs.astral.sh/uv/). Python 3.12 is pinned in `.python-version`; uv will
-fetch it if needed.
+- **Attention heatmap for any URL**, live site or `localhost`, on a desktop (1440x900) and
+  a mobile (390x844) viewport.
+- **Ranked hotspots** with the share of predicted attention each one holds, mapped to the
+  DOM element under it: tag, a short CSS selector, and its visible text. You learn *what*
+  draws the eye, not only where.
+- **Full-page analysis**, screen by screen, for long landing pages.
+- **PDFs and images**: a resume, a poster, a screenshot. Hotspots report the text lines
+  under them from the PDF text layer.
+- **A self-contained HTML report** per page: overlays, hotspot tables, attention totals per
+  element, and a desktop-versus-mobile comparison.
+- **Machine-readable output** (`hotspots.json`) for scripts, CI checks, or an AI design
+  review on top.
+
+## Why gazemap
+
+Attention-prediction heatmaps are usually sold as a subscription, and the pages you want
+to check are often unreleased or on `localhost`. gazemap gives you the same kind of
+first-glance signal from a published research model, locally, with the DOM mapping that
+a screenshot-only service cannot provide.
+
+The heatmap never comes from a language model. Asking a vision-language model "where
+would a user look?" produces confident prose but does not reproduce measured first
+fixations. gazemap uses [DeepGaze IIE](https://github.com/matthias-k/DeepGaze), a
+fixation-prediction model trained on eye-tracking data, and keeps any AI critique as a
+separate, optional layer on top of the numbers.
+
+## Quick start
+
+Tested on macOS with Apple Silicon, where PyTorch uses the MPS device. The CPU fallback
+should run on Linux and Windows but is untested there.
 
 ```bash
+git clone https://github.com/noopntr/gazemap.git
+cd gazemap
 uv sync
 uv run playwright install chromium
+uv run gazemap analyze https://example.com --viewport both
 ```
 
-The first `analyze` run downloads the DeepGaze IIE checkpoint (420 MB) and the MIT1003
-centerbias (8 MB) into `models/`, which is gitignored. Set `GAZEMAP_MODEL_DIR` to keep
-them elsewhere. If the download fails, the error prints the URL and target path so you
-can fetch the file by hand.
+Requires [uv](https://docs.astral.sh/uv/). Python 3.12 is pinned in `.python-version`
+and uv fetches it if needed. The first run downloads the DeepGaze IIE checkpoint (420 MB)
+and the MIT1003 centerbias (8 MB) into `models/`, which is gitignored. Set
+`GAZEMAP_MODEL_DIR` to keep them elsewhere. If a download fails, the error prints the URL
+and the target path so you can fetch the file by hand.
 
 ## Usage
 
 ```bash
-uv run gazemap analyze <url> [options]
+uv run gazemap analyze <url or file> [options]
 ```
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--viewport desktop\|mobile\|both` | `desktop` | Desktop is 1440x900, mobile is 390x844 with a phone user agent and touch. Both use device pixel ratio 1. |
+| `--full-page` | off | Analyze the whole page screen by screen instead of the first viewport only. |
+| `--max-screens N` | `20` | Cap on screens per viewport in full-page mode. |
 | `--wait MS` | `0` | Extra wait after the load event, for pages that render late. |
 | `--hide SELECTOR` | | CSS selector to hide before capture. Repeatable. Use it for cookie banners and chat widgets. |
 | `--centerbias mit1003\|uniform` | `mit1003` for pages, `uniform` for files | Prior over fixation locations. `uniform` removes the center preference. |
-| `--top N` | `5` | Number of hotspots to extract. |
+| `--top N` | `5` | Number of hotspots. |
 | `--device auto\|mps\|cpu` | `auto` | `auto` picks MPS when available. |
 | `--out DIR` | `runs` | Output root. |
+| `--report-dir DIR` | `~/Desktop/gazemap-reports` | Where the HTML report is written. |
+| `--no-report` | off | Skip the HTML report. |
 | `--timeout MS` | `30000` | Navigation timeout. |
 
 Local dev servers work the same way: `uv run gazemap analyze http://localhost:3000`.
+
+### Outputs
+
+Each run writes to `runs/<page-slug>/<viewport>/` and overwrites what was there. The
+slug is the host, port, and path of the URL, so `http://localhost:3000/pricing` becomes
+`runs/localhost-3000-pricing/desktop/`.
+
+| File | Content |
+|---|---|
+| `screenshot.png` | The captured page. |
+| `heatmap.png` | Grayscale attention map, 255 at the strongest point. |
+| `overlay.png` | Heatmap blended over the screenshot. Blend strength follows attention, so quiet areas show the page as is. Hotspots are boxed and numbered by rank. |
+| `hotspots.json` | Everything below. |
+
+`hotspots.json` records the URL, final URL after redirects, HTTP status, capture
+warnings, viewport, model, centerbias, device actually used, capture mode with page
+height and screen count, and runtime in seconds. Each hotspot has:
+
+- `rank`: 1 is the highest peak.
+- `center`: peak pixel in screenshot coordinates.
+- `bbox`: extent of the region around the peak that stays above half the peak value.
+- `share`: fraction of the page's total predicted attention inside that region.
+- `peak`: peak height relative to the strongest hotspot.
+- `screen`: which viewport-height screen the peak is on, counted from 1.
+- `element`: `tag`, a short CSS `selector`, and trimmed visible `text` of the topmost DOM
+  element at the center, from `document.elementFromPoint` in the same browser session.
+  For PDFs, `tag` is `text` and `text` holds the lines under the hotspot. `null` when
+  nothing is there.
+
+Hotspots are ranked by peak height, the model's best guess at where the eye lands first.
+A broad, softer region can hold a larger `share` than a sharper peak ranked above it.
+Both numbers are reported so you can use whichever fits the question.
 
 ### Full page
 
@@ -60,19 +133,14 @@ Local dev servers work the same way: `uv run gazemap analyze http://localhost:30
 uv run gazemap analyze https://example.com --viewport both --full-page
 ```
 
-| Option | Default | Meaning |
-|---|---|---|
-| `--full-page` | off | Analyze the whole page screen by screen instead of the first viewport only. |
-| `--max-screens N` | `20` | Cap on screens per viewport in full-page mode. Longer pages are truncated with a warning. |
-
 The model needs a single view at roughly the scale it was trained on, so a tall page
 cannot go in as one image: a 4000 px page shrunk to 1024 px would turn every headline
 into a few pixels. Instead the page is scrolled once so lazy content loads, captured in
 full, and cut into viewport-height screens. Each screen is predicted on its own, with
 its own center bias, and the maps are stitched with equal weight per screen. Fixed
-elements such as cookie banners appear once, in the first screen. Each hotspot records
-the `screen` it sits on, and `share` becomes a fraction of the whole page with screens
-weighted equally, so shares are smaller than in above-the-fold runs.
+elements such as cookie banners appear once, in the first screen. `share` becomes a
+fraction of the whole page with screens weighted equally, so shares are smaller than in
+above-the-fold runs.
 
 ### PDFs and images
 
@@ -83,67 +151,30 @@ uv run gazemap analyze screenshot.png
 
 A `.pdf`, `.png`, `.jpg` or `.webp` path works in place of a URL. Each PDF page is rendered
 at 150 dpi and analyzed as one view; outputs go to `runs/<file-name>/page-1/` and so on,
-images to `runs/<file-name>/image/`. In place of a DOM element, each hotspot reports the
-text lines under it from the PDF's text layer (`tag` is `text`, `selector` gives the page
-and pixel rows). Images have no text layer, so `element` is `null`. Documents default to
+images to `runs/<file-name>/image/`. Hotspots report the text lines under them from the
+PDF text layer. Images have no text layer, so `element` is `null`. Documents default to
 `--centerbias uniform`, because nobody reads a page from its middle; the viewport,
 full-page, wait, and hide options do not apply.
 
-Two-column layouts list both columns' lines under a hotspot. And keep in mind what the
-model is: a free-viewing first-glance predictor, not a reader. On a resume it can tell
-you whether the name and headings dominate or a photo, icon column, or colored sidebar
-steals the first look. It cannot tell you what a recruiter, who scans top-left down for a
-title, company, and dates, will actually read.
+On a resume, gazemap answers a layout question: does the name dominate, or does a photo,
+an icon column, or a colored sidebar steal the first look? It does not model a recruiter,
+who scans top-left down for a title, a company, and dates. Two-column layouts list both
+columns' lines under a hotspot.
 
 ### Report
 
-Every run also writes a self-contained HTML report to `~/Desktop/gazemap-reports/`,
-one file per page slug, overwritten on re-run. It embeds the overlays and lists the
-hotspots, the total attention per DOM element, and the elements that draw attention in
-every viewport. It states what the model predicted and how to read it; it does not
-critique the design, which is the job of the later review step.
-
-| Option | Default | Meaning |
-|---|---|---|
-| `--report-dir DIR` | `~/Desktop/gazemap-reports` | Where the report is written. |
-| `--no-report` | off | Skip the report. |
-
-### Outputs
-
-Each run writes to `runs/<page-slug>/<viewport>/` and overwrites what was there. The
-slug is the host, port, and path of the URL, so `http://localhost:3000/pricing` becomes
-`runs/localhost-3000-pricing/desktop/`.
-
-| File | Content |
-|---|---|
-| `screenshot.png` | The captured viewport. |
-| `heatmap.png` | Grayscale attention map, 255 at the strongest point. |
-| `overlay.png` | Heatmap blended over the screenshot. Blend strength follows attention, so quiet areas show the page as is. Hotspots are boxed and numbered by rank. |
-| `hotspots.json` | Everything below. |
-
-`hotspots.json` records the URL, final URL after redirects, HTTP status, capture
-warnings, viewport, model, centerbias, device actually used, capture mode with page
-height and screen count, and runtime in seconds for capture, inference, and total. Each
-hotspot has:
-
-- `rank`: 1 is the highest peak.
-- `center`: peak pixel in screenshot coordinates.
-- `bbox`: extent of the region around the peak that stays above half the peak value.
-- `share`: fraction of the page's total predicted attention inside that region.
-- `peak`: peak height relative to the strongest hotspot.
-- `screen`: which viewport-height screen the peak is on, counted from 1.
-- `element`: `tag`, a short CSS `selector`, and trimmed visible `text` of the topmost DOM element at the center, from `document.elementFromPoint` in the same browser session. `null` if the point is outside the document.
-
-Hotspots are ranked by peak height, which is the model's best guess at where the eye
-lands first. A broad, softer region can hold a larger `share` than a sharper peak ranked
-above it. Both numbers are reported so you can use whichever fits the question.
+Every run writes a self-contained HTML report to `~/Desktop/gazemap-reports/`, one file
+per page slug, images embedded, overwritten on re-run. It lists the hotspots, the total
+attention per element, and the elements that draw attention in every viewport, and it
+states how to read the numbers. It does not critique the design; that is a job for a
+reviewer, human or AI, reading the report.
 
 ### Exit codes
 
-`0` success, `2` the page could not be captured (unreachable host, connection refused,
-timeout, TLS problem), `3` a model file could not be downloaded. HTTP errors and bot
-challenges do not abort the run. The page is captured anyway and a warning is printed and
-saved, because a 403 page can still be worth looking at.
+`0` success, `2` the page or file could not be loaded (unreachable host, connection
+refused, timeout, TLS problem, missing file), `3` a model file could not be downloaded.
+HTTP errors and bot challenges do not abort a run: the page is captured anyway and a
+warning is printed and saved, because a 403 page can still be worth looking at.
 
 ## How it works
 
@@ -162,12 +193,12 @@ saved, because a 403 page can still be worth looking at.
    hotspot's region is the connected part of its own basin that stays above half its
    peak, so regions never overlap or enclose another hotspot. Candidates whose region
    holds under 1% of the attention are skipped in favour of the next peak.
-4. **DOM mapping.** For each hotspot center the still-open page is asked for the element
-   at that point.
-5. **Render and write.** Images and JSON are written, then the summary is printed.
+4. **Mapping.** For each hotspot center the still-open page is asked for the element at
+   that point, or the PDF text layer for the lines under it.
+5. **Render and write.** Images, JSON, the terminal summary, and the report.
 
 The model sits behind a small `SaliencyModel` protocol in `src/gazemap/saliency/`, so
-another model can be added without touching the pipeline. UMSI is the planned fallback.
+another model can be added without touching the pipeline.
 
 ### About the DeepGaze loader
 
@@ -192,19 +223,80 @@ Measured on a MacBook Pro M4 Pro (24 GB) with the Wikipedia home page.
 | CPU, mobile 390x844 | | 1.3 s | 1.27 s |
 
 The first MPS call per input shape pays for kernel compilation. Capture adds about 1.2 s
-per viewport, including the browser launch. A single-page run therefore takes a few
-seconds end to end on either device; MPS wins once more than one page is analyzed in the
-same process. If an MPS op fails, the run retries on CPU and says so.
+per viewport, including the browser launch. A single page takes a few seconds end to end
+on either device. Full page on a 4200 px desktop page (5 screens) and a 7700 px mobile
+page (10 screens), both viewports plus the report: 23 s wall clock on MPS. If an MPS op
+fails, the run retries on CPU and says so.
 
-Full page on a 4200 px desktop page (5 screens) and a 7700 px mobile page (10 screens),
-both viewports in one run, including the report: 23 s wall clock on MPS. Inference was
-4.0 s and 5.7 s, capture 2.7 s and 3.0 s.
+## Accuracy and limitations
+
+- **DeepGaze is trained on natural images, not web pages.** MIT1003 is photographs.
+  The heatmap is a rough signal about contrast, size, faces, text, and position, not a
+  measurement of real users. Treat it as one input to your own judgment, and validate it
+  on pages you know before trusting it on pages you don't.
+- **One view at a time.** The model predicts first fixations on a single view. Full-page
+  mode analyzes each screen as if the viewer had just scrolled there, which ignores
+  everything they saw on the way.
+- **Center bias.** The MIT1003 prior pulls attention toward the center of the viewport.
+  Compare with `--centerbias uniform` when an off-center element seems under-rated.
+- **No reading order, no intent.** A saliency model does not know that readers start
+  top-left or that they are looking for a price. It answers "what pops", not "what gets
+  read".
+- **Mobile scaling.** Mobile screenshots are upscaled to 1024 px on the long side, the
+  same rule as desktop. At a phone's viewing distance the native width is already close
+  to the training scale, so this is a judgment call; the constant is
+  `DeepGazeIIE(long_side=...)`.
+- **Headless detection.** Some sites serve a challenge page or a 403 to headless
+  browsers. The run continues with a warning; check `http_status` and `warnings` in the
+  JSON before trusting the result.
+- **DOM mapping picks the topmost element.** Overlays, transparent wrappers, and text
+  spans inside buttons are reported as they are.
+
+## FAQ
+
+**Is this eye tracking?** No. Eye tracking measures real people. gazemap predicts where
+first fixations are likely to land, using a model trained on eye-tracking datasets. It
+is a fast, free proxy for a first-impression test, not a replacement for one.
+
+**Does it work offline?** Yes, after the first run has downloaded the model files and
+Chromium. Live URLs need network access, `localhost` and files do not.
+
+**Does it send my pages anywhere?** No. Capture, inference, and reporting all happen on
+your machine.
+
+**Can I use it for commercial work?** gazemap's own code is MIT licensed. The DeepGaze
+IIE code and weights it downloads carry no explicit license from their authors, and the
+backbone weights inside the checkpoint come from several research groups. Check the
+[Models and licenses](#models-and-licenses) table and decide for your own situation.
+
+**Why not just ask an AI model to look at the screenshot?** Because it will guess. A
+saliency model trained on fixation data is the right tool for "where do eyes land";
+a language model is the right tool for explaining why and proposing fixes, once it has
+the numbers.
+
+**Can I plug in another model?** Yes. Implement the `SaliencyModel` protocol in
+`src/gazemap/saliency/__init__.py` and register it in `load_model()`. UMSI, which was
+trained on graphic designs rather than photographs, is the natural next candidate.
+
+## Roadmap
+
+- A `/gaze-review` step for AI coding assistants: read the overlay and the JSON, ask what
+  the page is for, and write a critique with prioritized, concrete suggestions tied to
+  the hotspot data.
+- A `/gaze-fix` step: propose a code change for the top suggestion, apply it on a branch
+  after approval, re-run gazemap on the dev server, and show before and after with the
+  change in attention share on the target element.
+- UMSI as a second model, for graphic designs, documents, and mobile UI.
 
 ## Models and licenses
 
+gazemap does not ship any model weights. It downloads them from their authors' releases
+on first run. The gazemap code itself is MIT licensed; each component below keeps its own
+terms.
+
 | Component | Source | License |
 |---|---|---|
-| DeepGaze IIE code and checkpoint | [matthias-k/DeepGaze](https://github.com/matthias-k/DeepGaze), tag v1.1.0 | No license file in the repository and the MIT classifier in its `setup.py` is commented out. Research code published with the paper: Linardos, Kümmerer, Press, Bethge, *Calibrated prediction in and out-of-domain for state-of-the-art saliency modeling*, ICCV 2021. Used here for personal, non-commercial purposes. |
+| DeepGaze IIE code and checkpoint | [matthias-k/DeepGaze](https://github.com/matthias-k/DeepGaze), tag v1.1.0 | No license file in the repository and the MIT classifier in its `setup.py` is commented out. Research code published with the paper: Linardos, Kümmerer, Press, Bethge, *Calibrated prediction in and out-of-domain for state-of-the-art saliency modeling*, ICCV 2021. |
 | MIT1003 centerbias | Same release | Derived from the MIT1003 eye-tracking dataset (Judd et al. 2009). No explicit license. |
 | ShapeNet-C backbone weights | [rgeirhos/texture-vs-shape](https://github.com/rgeirhos/texture-vs-shape), redistributed inside the checkpoint | No license for code or weights in that repository; it only ships a `DATASET_LICENSE` for its stimuli. Research weights from Geirhos et al., ICLR 2019. |
 | EfficientNet-B5 backbone code and weights | [lukemelas/EfficientNet-PyTorch](https://github.com/lukemelas/EfficientNet-PyTorch), vendored in DeepGaze | Apache-2.0 |
@@ -215,41 +307,30 @@ both viewports in one run, including the report: 23 s wall clock on MPS. Inferen
 | pypdfium2 (PDFium) | | BSD-3-Clause and Apache-2.0 |
 | Playwright, Chromium | | Apache-2.0, BSD-3-Clause |
 
-Model weights are never committed. They live in the gitignored `models/` directory.
+If you use the model in published work, cite the DeepGaze IIE paper:
 
-## Known limitations
-
-- **DeepGaze is trained on natural images, not web pages.** MIT1003 is photographs.
-  The heatmap is a rough signal about contrast, faces, text, and position, not a
-  measurement of real users. Treat it as one input to your own judgment.
-- **One view at a time.** The model predicts first fixations on a single view. Full-page
-  mode analyzes each screen as if the viewer had just scrolled there, which ignores
-  everything they saw on the way.
-- **Center bias.** The MIT1003 prior pulls attention toward the center of the viewport.
-  Compare with `--centerbias uniform` when an off-center element seems under-rated.
-- **Mobile scaling.** Mobile screenshots are upscaled to 1024 px on the long side, the
-  same rule as desktop. At a phone's viewing distance the native width is already close
-  to the training scale, so this is a judgment call. The constant lives in
-  `DeepGazeIIE(long_side=...)`.
-- **Headless detection.** Some sites serve a challenge page or a 403 to headless
-  browsers. The run continues with a warning; check `http_status` and `warnings` in the
-  JSON before trusting the result.
-- **DOM mapping picks the topmost element.** Overlays, transparent wrappers, and text
-  spans inside buttons are reported as they are.
+```bibtex
+@inproceedings{linardos2021calibrated,
+  title     = {Calibrated prediction in and out-of-domain for state-of-the-art saliency modeling},
+  author    = {Linardos, Akis and K{\"u}mmerer, Matthias and Press, Ori and Bethge, Matthias},
+  booktitle = {Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)},
+  year      = {2021}
+}
+```
 
 ## Development
 
 ```bash
-uv run pytest            # 55 tests, about 40 s with weights and Chromium present
-uv run pytest -m "not smoke"   # unit and capture tests only
+uv run pytest                  # 55 tests, about 40 s with weights and Chromium present
+uv run pytest -m "not smoke"   # unit and capture tests only, no model needed
 ```
 
 Unit tests cover normalization, coordinate mapping, map stitching, peak extraction with
 suppression, rendering, full-page capture and DOM lookup against fixture pages served
-locally, PDF and image loading with text lookup, report generation, and CLI output.
-Tests never write to the real Desktop. The smoke
-test runs the real model on a plain page with one red button and asserts the top hotspot
-lands on it in both viewports. Model tests skip when the weights are not downloaded.
+locally, PDF and image loading with text lookup, report generation, and CLI output. The
+smoke tests run the real model on a plain page with one red button and assert the top
+hotspot lands on it in both viewports. Model tests skip when the weights are not
+downloaded. Tests never write to the real Desktop.
 
 ```
 src/gazemap/
@@ -264,3 +345,11 @@ src/gazemap/
   saliency/deepgaze.py    DeepGaze IIE: downloads, device, prediction
   saliency/backbones.py   backbone architectures rebuilt without downloads
 ```
+
+Issues and pull requests are welcome. If you add a model, keep it behind `load_model()`
+so the CLI and the outputs stay the same.
+
+## License
+
+[MIT](LICENSE) for everything in this repository. Third-party models and libraries keep
+their own licenses, listed above.
