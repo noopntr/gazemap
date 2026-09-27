@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Model weights and downloaded assets (never vendored)
+models/
+
+# Analysis outputs
+runs/
+
+# OS
+.DS_Store
+
+# Local preview helper for the desktop app
+.claude/launch.json

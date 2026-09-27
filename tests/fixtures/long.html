@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fixture: long page</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #ffffff; }
+  section { position: relative; height: 1000px; }
+  #deep {
+    position: absolute; left: 25%; top: 300px;
+    width: 240px; height: 80px;
+    background: #e11d48; color: #ffffff; border: 0; border-radius: 8px;
+    font: 700 28px/80px system-ui, sans-serif; text-align: center;
+  }
+  #bar {
+    position: fixed; left: 0; right: 0; bottom: 0; height: 60px;
+    background: #111827; color: #ffffff; font: 16px/60px system-ui, sans-serif; text-align: center;
+  }
+</style>
+</head>
+<body>
+  <section id="one"></section>
+  <section id="two"></section>
+  <section id="three"><button id="deep" type="button">Deep button</button></section>
+  <div id="bar">Fixed bar</div>
+</body>
+</html>
