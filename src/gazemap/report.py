@@ -156,8 +156,9 @@ def _notes() -> str:
         "<p>In full-page mode each screen is analyzed as its own view and every screen carries equal "
         "weight, so a share is a fraction of the whole page with screens weighted equally. Fixed "
         "elements such as cookie banners are captured once, in the first screen.</p>"
-        "<p>The MIT1003 center bias pulls attention toward the middle of each screen. Re-run with "
-        "<code>--centerbias uniform</code> to see the page without that prior.</p></div>"
+        "<p>The default prior is fitted on eye tracking over UI screenshots (UEyes): people look at interfaces "
+        "with a top-left bias, so elements near the top left get a head start. Re-run with "
+        "<code>--centerbias uniform</code> to see the page without any prior.</p></div>"
     )
 
 

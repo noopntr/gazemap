@@ -3,7 +3,10 @@
 **Predict where people look first on a web page, screenshot, or PDF.** gazemap turns a
 URL or a file into an attention heatmap, ranks the hotspots, and tells you which DOM
 element or line of text sits under each one. It runs entirely on your machine with an
-open-source saliency model: free, offline, no API keys, no accounts.
+open-source saliency model and a location prior fitted on human eye tracking over UI
+screenshots: free, offline, no API keys, no accounts. On held-out UI screenshots its top
+hotspot lands where people actually looked two times in three
+([benchmark](#accuracy-measured-against-human-eye-tracking)).
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
@@ -41,9 +44,12 @@ https://westorehub.com [desktop 1440x900, above the fold] deepgaze2e on mps, cen
   inside your call to action, before and after a change.
 - **Before and after**: `compare` puts two runs side by side and reports the change in
   each target's share.
-- **Machine-readable output** (`hotspots.json`) and two Claude Code skills: `/gaze-review`
-  turns the numbers into a critique with prioritized fixes, `/gaze-fix` applies the top
-  fix on a branch and proves it with the numbers.
+- **Try a redesign without touching code**: `--css tweaks.css` injects styles before
+  capture, so a change is measured in seconds.
+- **Machine-readable output** (`hotspots.json`) and three Claude Code skills: `/gaze-review`
+  turns the numbers into a critique with prioritized fixes, `/gaze-improve` iterates on
+  CSS until the main elements win the first look, and `/gaze-fix` ports the winner into
+  the codebase on a branch and proves it with the numbers.
 
 ## Why gazemap
 
@@ -90,7 +96,8 @@ uv run gazemap analyze <url or file> [options]
 | `--max-screens N` | `20` | Cap on screens per viewport in full-page mode. |
 | `--wait MS` | `0` | Extra wait after the load event, for pages that render late. |
 | `--hide SELECTOR` | | CSS selector to hide before capture. Repeatable. Use it for cookie banners and chat widgets. |
-| `--centerbias mit1003\|uniform` | `mit1003` for pages, `uniform` for files | Prior over fixation locations. `uniform` removes the center preference. |
+| `--centerbias ueyes\|mit1003\|uniform` | `ueyes` | Prior over fixation locations. `ueyes` is fitted on eye tracking over UI screenshots and favours the top left; `mit1003` is DeepGaze's photograph prior and favours the center; `uniform` removes the prior. |
+| `--css FILE` | | Stylesheet injected before capture, to try a design change without editing the site. Repeatable. |
 | `--top N` | `5` | Number of hotspots. |
 | `--device auto\|mps\|cpu` | `auto` | `auto` picks MPS when available. |
 | `--out DIR` | `runs` | Output root. |
@@ -172,9 +179,8 @@ uv run gazemap analyze screenshot.png
 A `.pdf`, `.png`, `.jpg` or `.webp` path works in place of a URL. Each PDF page is rendered
 at 150 dpi and analyzed as one view; outputs go to `runs/<file-name>/page-1/` and so on,
 images to `runs/<file-name>/image/`. Hotspots report the text lines under them from the
-PDF text layer. Images have no text layer, so `element` is `null`. Documents default to
-`--centerbias uniform`, because nobody reads a page from its middle; the viewport,
-full-page, wait, and hide options do not apply.
+PDF text layer. Images have no text layer, so `element` is `null`. The viewport,
+full-page, wait, hide, target, and css options do not apply.
 
 On a resume, gazemap answers a layout question: does the name dominate, or does a photo,
 an icon column, or a colored sidebar steal the first look? It does not model a recruiter,
@@ -218,9 +224,9 @@ warning is printed and saved, because a 403 page can still be worth looking at.
    are removed with an injected stylesheet. Animations are frozen for the screenshot.
 2. **Saliency.** The screenshot is resized so its long side is 1024 px, the scale
    DeepGaze was trained at (MIT1003 images at about 35 px per degree of visual angle).
-   The centerbias log density is rescaled to the same size and renormalized. The model
-   returns a log density, which is turned into a probability map and resized back to
-   screenshot size, renormalized to sum to 1.
+   The location prior, a log density, is rescaled to the same size and renormalized.
+   DeepGaze combines it with what it sees and returns a log density, which is turned into
+   a probability map and resized back to screenshot size, renormalized to sum to 1.
 3. **Hotspots.** Greedy non-maximum suppression over local maxima. Peaks within 5% of
    the long side of an earlier peak, or below 5% of the global maximum, are dropped.
    Every pixel is then assigned to the local maximum it reaches by steepest ascent, and
@@ -246,6 +252,60 @@ key checking, so the only downloads are the checkpoint and the centerbias. DeepG
 pinned to tag v1.1.0, whose IIE code is identical to the current main branch but does not
 require OpenAI CLIP.
 
+## Accuracy, measured against human eye tracking
+
+`gazemap benchmark` scores the model against [UEyes](https://zenodo.org/record/8010312)
+(Jiang et al., CHI 2023): 62 people's eye movements on 1,980 screenshots of web pages,
+desktop apps, mobile apps, and posters. Results below are on the dataset's held-out test
+split (108 screenshots, 27 per type), against the fixations of the first 3 seconds.
+
+| Configuration | CC | NSS | AUC-Judd | KLD (lower is better) | SIM | Top-1 hit |
+|---|---|---|---|---|---|---|
+| **DeepGaze IIE + UI prior (default)** | **0.491** | **1.20** | **0.797** | 1.09 | **0.471** | **67%** |
+| DeepGaze IIE + photograph prior | 0.322 | 0.80 | 0.731 | 1.47 | 0.391 | 41% |
+| DeepGaze IIE, no prior | 0.394 | 0.98 | 0.742 | 1.28 | 0.411 | 49% |
+| UI prior alone, image ignored | 0.433 | 1.00 | 0.766 | **1.08** | 0.427 | 42% |
+| Photograph prior alone | 0.120 | 0.29 | 0.582 | 2.01 | 0.309 | 17% |
+
+Top-1 hit is the share of screenshots where gazemap's rank-1 hotspot lies in the 10% of
+the screen that drew the most human attention; it is the number that matters most for a
+tool that says "this is what people see first". Per UI type, with the default:
+
+| Type | CC | NSS | Top-1 hit |
+|---|---|---|---|
+| Web pages | 0.468 | 1.19 | 59% |
+| Desktop apps | 0.474 | 1.24 | 70% |
+| Mobile apps | 0.505 | 1.25 | 70% |
+| Posters | 0.516 | 1.14 | 67% |
+
+What the numbers say:
+
+- **The prior matters as much as the model.** DeepGaze's own prior was fitted on
+  photographs, where people look at the center. People look at interfaces from the top
+  left, as the UEyes authors found, so that prior points the wrong way: it makes
+  DeepGaze worse than using no prior at all. gazemap therefore ships a prior fitted on
+  the UEyes training split (1,870 screenshots, no test data) and uses it by default.
+- **Location explains a lot, content decides the winner.** The UI prior alone, which
+  never looks at the image, correlates with human attention almost as well as the full
+  model. What DeepGaze adds is picking the right element: the top-1 hit rate goes from
+  42% to 67%.
+- **It is a strong hint, not ground truth.** One time in three the predicted first
+  hotspot is not where people looked. Use gazemap to compare designs and catch buried
+  calls to action, and confirm important decisions with real users.
+
+Reproduce it:
+
+```bash
+uv run gazemap benchmark --download            # test split, about 50 MB, about 5 minutes on MPS
+uv run gazemap benchmark --download --split all
+```
+
+Only the needed files are read out of the 12.9 GB archive with HTTP range requests,
+throttled to stay under Zenodo's rate limit. Per-image scores land in
+`runs/benchmark/results.json`. The benchmark and the prior are evaluated on UEyes' own
+screenshots, which were shown whole on a monitor; gazemap's captures are browser
+viewports, which is close but not identical.
+
 ## Runtime
 
 Measured on a MacBook Pro M4 Pro (24 GB) with the Wikipedia home page.
@@ -265,15 +325,16 @@ fails, the run retries on CPU and says so.
 
 ## Accuracy and limitations
 
-- **DeepGaze is trained on natural images, not web pages.** MIT1003 is photographs.
-  The heatmap is a rough signal about contrast, size, faces, text, and position, not a
-  measurement of real users. Treat it as one input to your own judgment, and validate it
-  on pages you know before trusting it on pages you don't.
+- **DeepGaze is trained on photographs, not interfaces.** The UI prior corrects where it
+  looks, not what it recognizes: it has no notion of a button, a price, or a logo as
+  such. See the [benchmark](#accuracy-measured-against-human-eye-tracking) for how often
+  that matters: the top hotspot matches human attention about two times in three.
 - **One view at a time.** The model predicts first fixations on a single view. Full-page
   mode analyzes each screen as if the viewer had just scrolled there, which ignores
   everything they saw on the way.
-- **Center bias.** The MIT1003 prior pulls attention toward the center of the viewport.
-  Compare with `--centerbias uniform` when an off-center element seems under-rated.
+- **Top-left prior.** The default prior gives elements near the top left a head start,
+  because that is where people start on interfaces. Compare with `--centerbias uniform`
+  when an element far from the top left seems under-rated.
 - **No reading order, no intent.** A saliency model does not know that readers start
   top-left or that they are looking for a price. It answers "what pops", not "what gets
   read".
@@ -290,8 +351,10 @@ fails, the run retries on CPU and says so.
 ## FAQ
 
 **Is this eye tracking?** No. Eye tracking measures real people. gazemap predicts where
-first fixations are likely to land, using a model trained on eye-tracking datasets. It
-is a fast, free proxy for a first-impression test, not a replacement for one.
+first fixations are likely to land, using a model and a prior fitted on eye-tracking
+datasets, and it is scored against real eye tracking on UIs in the
+[benchmark](#accuracy-measured-against-human-eye-tracking). It is a fast, free proxy for a
+first-impression test, not a replacement for one.
 
 **Does it work offline?** Yes, after the first run has downloaded the model files and
 Chromium. Live URLs need network access, `localhost` and files do not.
@@ -333,6 +396,26 @@ to the HTML reports in `~/Desktop/gazemap-reports/`.
 The split is deliberate: the saliency model supplies the numbers, the language model
 supplies the interpretation, and every claim in the review has to point at a number.
 
+### Measured redesigns with `/gaze-improve`
+
+```
+/gaze-improve https://example.com
+```
+
+The third skill, in `.claude/skills/gaze-improve/`, reworks the design in a measurement
+loop without touching any code. It takes the goal from `review.md` (or asks), measures a
+baseline, then tries one design idea at a time as a stylesheet injected with `--css`,
+keeps an idea only if the target's share rises and the page's other key elements keep
+at least two thirds of theirs, and stops when the target holds a top-3 hotspot on every
+viewport or after six attempts. Hiding or shrinking competitors is not allowed: only
+size, weight, colour from the page's palette, contrast, spacing, order, and position. The
+result is `improve.md` with every attempt and its numbers, the side-by-side overlays,
+and `best.css` as the spec for `/gaze-fix`.
+
+On westorehub.com, with the search bar as the goal, six attempts took the bar from 0.1%
+to 6.2% of predicted attention on mobile, where its Search button entered the top three,
+and from 2.3% to 5.2% on desktop, where the headline still wins.
+
 ### Verified fixes with `/gaze-fix`
 
 ```
@@ -347,14 +430,16 @@ committing, re-runs gazemap with the same flags, runs `compare`, and writes `fix
 the before and after shares per viewport, the diff, and the side-by-side overlays. A
 change that does not move the target's share is reported as such, with a revert command.
 
-To use either skill from any project, link or copy the folders into `~/.claude/skills/`
+To use the skills from any project, link or copy the folders into `~/.claude/skills/`
 and set `GAZEMAP_HOME` to the checkout.
 
 ## Roadmap
 
-- UMSI as a second model, for graphic designs, documents, and mobile UI.
-- A batch mode for a list of URLs, and a CI check that fails when a target's share drops
-  below a threshold.
+- A per-project spec file and `gazemap check`, which fails when a main element's share
+  drops below its threshold, for CI.
+- Installation as a tool (`uvx gazemap`) and CI for the unit tests.
+- A UI-trained saliency model such as UMSI++, now that the benchmark can show whether it
+  beats DeepGaze with the UI prior.
 
 ## Models and licenses
 
@@ -365,7 +450,9 @@ terms.
 | Component | Source | License |
 |---|---|---|
 | DeepGaze IIE code and checkpoint | [matthias-k/DeepGaze](https://github.com/matthias-k/DeepGaze), tag v1.1.0 | No license file in the repository and the MIT classifier in its `setup.py` is commented out. Research code published with the paper: Linardos, Kümmerer, Press, Bethge, *Calibrated prediction in and out-of-domain for state-of-the-art saliency modeling*, ICCV 2021. |
-| MIT1003 centerbias | Same release | Derived from the MIT1003 eye-tracking dataset (Judd et al. 2009). No explicit license. |
+| MIT1003 centerbias (optional prior) | Same release | Derived from the MIT1003 eye-tracking dataset (Judd et al. 2009). No explicit license. |
+| UI prior `centerbias_ueyes.npy` (default) | Fitted from the [UEyes](https://zenodo.org/record/8010312) training split, shipped in this repository | CC BY 4.0, derived from UEyes by Jiang, Leiva, Tavakoli, Houssel, Kylmälä, Oulasvirta (CHI 2023). See `NOTICE`. |
+| UEyes dataset (benchmark only, downloaded on demand) | [Zenodo record 8010312](https://zenodo.org/record/8010312) | CC BY 4.0 |
 | ShapeNet-C backbone weights | [rgeirhos/texture-vs-shape](https://github.com/rgeirhos/texture-vs-shape), redistributed inside the checkpoint | No license for code or weights in that repository; it only ships a `DATASET_LICENSE` for its stimuli. Research weights from Geirhos et al., ICLR 2019. |
 | EfficientNet-B5 backbone code and weights | [lukemelas/EfficientNet-PyTorch](https://github.com/lukemelas/EfficientNet-PyTorch), vendored in DeepGaze | Apache-2.0 |
 | DenseNet201 and ResNeXt50 backbone weights | torchvision | BSD-3-Clause |
@@ -375,7 +462,8 @@ terms.
 | pypdfium2 (PDFium) | | BSD-3-Clause and Apache-2.0 |
 | Playwright, Chromium | | Apache-2.0, BSD-3-Clause |
 
-If you use the model in published work, cite the DeepGaze IIE paper:
+If you use gazemap in published work, cite DeepGaze IIE and, for the UI prior or the
+benchmark, UEyes:
 
 ```bibtex
 @inproceedings{linardos2021calibrated,
@@ -384,12 +472,19 @@ If you use the model in published work, cite the DeepGaze IIE paper:
   booktitle = {Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)},
   year      = {2021}
 }
+
+@inproceedings{jiang2023ueyes,
+  title     = {UEyes: Understanding Visual Saliency across User Interface Types},
+  author    = {Jiang, Yue and Leiva, Luis A. and Rezazadegan Tavakoli, Hamed and Houssel, Paul R. B. and Kylm{\"a}l{\"a}, Julia and Oulasvirta, Antti},
+  booktitle = {Proceedings of the 2023 CHI Conference on Human Factors in Computing Systems},
+  year      = {2023}
+}
 ```
 
 ## Development
 
 ```bash
-uv run pytest                  # 64 tests, about 45 s with weights and Chromium present
+uv run pytest                  # 91 tests, about 55 s with weights and Chromium present
 uv run pytest -m "not smoke"   # unit and capture tests only, no model needed
 ```
 
@@ -410,6 +505,10 @@ src/gazemap/
   render.py               heatmap and overlay images
   report.py               self-contained HTML report
   compare.py              before/after deltas and side-by-side overlays
+  benchmark.py            scoring against human eye tracking, baselines
+  metrics.py              AUC-Judd, NSS, CC, KLD, SIM, top-1 hit
+  datasets.py             UEyes: partial download from the remote zip
+  priors.py               fitting and loading fixation priors
   saliency/__init__.py    SaliencyModel protocol and load_model()
   saliency/deepgaze.py    DeepGaze IIE: downloads, device, prediction
   saliency/backbones.py   backbone architectures rebuilt without downloads
@@ -420,5 +519,6 @@ so the CLI and the outputs stay the same.
 
 ## License
 
-[MIT](LICENSE) for everything in this repository. Third-party models and libraries keep
-their own licenses, listed above.
+[MIT](LICENSE) for gazemap's code. The UI prior file is derived from UEyes and shared
+under CC BY 4.0, see [NOTICE](NOTICE). Third-party models and libraries keep their own
+licenses, listed above.

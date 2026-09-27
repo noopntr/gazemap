@@ -31,3 +31,11 @@ def resume_pdf(fixture_server, tmp_path_factory):
         page.pdf(path=str(path), format="A4", print_background=True)
         browser.close()
     return path
+
+
+@pytest.fixture(autouse=True)
+def no_download_throttle(monkeypatch):
+    """Local fixture servers need no rate limiting; keep download tests fast."""
+    from gazemap import datasets
+
+    monkeypatch.setattr(datasets, "MIN_INTERVAL", 0.0)

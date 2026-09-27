@@ -53,7 +53,7 @@ def test_analyze_page_writes_outputs_and_maps_top_hotspot_to_element(fixture_ser
 
     assert record["viewport"] == {"name": "desktop", "width": 1440, "height": 900, "mobile": False}
     assert record["model"] == "fake"
-    assert record["centerbias"] == "mit1003"
+    assert record["centerbias"] == "ueyes"
     assert record["device"] == "cpu"
     assert record["capture"] == {"mode": "above_the_fold", "page_height": 900, "screens": 1, "screen_height": 900}
     assert set(record["runtime_seconds"]) == {"capture", "inference", "total"}
@@ -122,7 +122,7 @@ def test_analyze_accepts_a_pdf_and_reports_the_text_under_each_hotspot(resume_pd
     record = json.loads((out_dir / "hotspots.json").read_text())
     assert record["capture"] == {"mode": "document", "page_height": record["viewport"]["height"], "screens": 1, "screen_height": record["viewport"]["height"]}
     assert record["viewport"]["name"] == "page-1"
-    assert record["centerbias"] == "uniform"
+    assert record["centerbias"] == "ueyes"
     assert record["http_status"] is None
     assert abs(Image.open(out_dir / "overlay.png").size[0] - 1240) <= 3
     top = record["hotspots"][0]
@@ -176,3 +176,38 @@ def test_main_passes_repeated_target_flags(fixture_server, tmp_path, monkeypatch
     assert code == 0
     record = json.loads((tmp_path / cli.slugify_url(url) / "desktop" / "hotspots.json").read_text())
     assert [t["selector"] for t in record["targets"]] == ["#cta", "body"]
+
+
+def test_ueyes_is_a_valid_centerbias_choice():
+    args = cli.build_parser().parse_args(["analyze", "https://example.com", "--centerbias", "ueyes"])
+    assert args.centerbias == "ueyes"
+
+
+def test_css_flag_reads_files_and_records_them(fixture_server, tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "load_model", lambda name, device: FakeModel())
+    tweak = tmp_path / "tweak.css"
+    tweak.write_text("#cta { background: #00aa00 !important; }")
+    url = f"{fixture_server}/button.html"
+    code = cli.main(["analyze", url, "--css", str(tweak), "--out", str(tmp_path), "--no-report"])
+    assert code == 0
+    record = json.loads((tmp_path / cli.slugify_url(url) / "desktop" / "hotspots.json").read_text())
+    assert record["css"] == [str(tweak)]
+    shot = np.asarray(Image.open(tmp_path / cli.slugify_url(url) / "desktop" / "screenshot.png"))
+    assert shot[320, 380].tolist() == [0, 170, 0]
+
+
+def test_missing_css_file_is_a_clear_error(tmp_path, capsys):
+    code = cli.main(["analyze", "https://example.com", "--css", str(tmp_path / "nope.css"), "--no-report"])
+    assert code == 2
+    assert "nope.css" in capsys.readouterr().err
+
+
+def test_ui_prior_is_the_default_for_pages_and_files(fixture_server, resume_pdf, tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "load_model", lambda name, device: FakeModel())
+    url = f"{fixture_server}/button.html"
+    assert cli.main(["analyze", url, "--out", str(tmp_path), "--no-report"]) == 0
+    assert cli.main(["analyze", str(resume_pdf), "--out", str(tmp_path), "--no-report"]) == 0
+    page = json.loads((tmp_path / cli.slugify_url(url) / "desktop" / "hotspots.json").read_text())
+    doc = json.loads((tmp_path / "resume" / "page-1" / "hotspots.json").read_text())
+    assert page["centerbias"] == "ueyes"
+    assert doc["centerbias"] == "ueyes"

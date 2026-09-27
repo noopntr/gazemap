@@ -19,3 +19,6 @@ runs/
 
 # Before/after working directories of the gaze-fix skill
 compare/
+
+# Benchmark datasets (downloaded, never committed)
+data/

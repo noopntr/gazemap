@@ -15,7 +15,9 @@ os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 from PIL import Image  # noqa: E402
 
 from gazemap.capture import VIEWPORTS, CaptureError, PageSession, Viewport  # noqa: E402
+from gazemap.benchmark import CenterBaseline, print_table, run_benchmark  # noqa: E402
 from gazemap.compare import compare_runs, print_comparison  # noqa: E402
+from gazemap.datasets import download_ueyes, load_ueyes  # noqa: E402
 from gazemap.document import is_document_path, load_document  # noqa: E402
 from gazemap.hotspots import Hotspot, find_hotspots  # noqa: E402
 from gazemap.maps import normalize_unit, stitch_windows  # noqa: E402
@@ -59,7 +61,7 @@ def analyze_page(
     model: SaliencyModel,
     *,
     out_dir: str | Path = "runs",
-    centerbias: str = "mit1003",
+    centerbias: str = "ueyes",
     top: int = 5,
     wait_ms: int = 0,
     hide: list[str] | tuple[str, ...] = (),
@@ -67,6 +69,7 @@ def analyze_page(
     full_page: bool = False,
     max_screens: int = 20,
     targets: list[str] | tuple[str, ...] = (),
+    css_files: list[str] | tuple[str, ...] = (),
 ) -> dict:
     """Capture a web page, predict, extract hotspots, map them to DOM elements, write outputs.
 
@@ -75,7 +78,10 @@ def analyze_page(
     selectors whose attention share is measured inside their own box.
     """
     started = time.perf_counter()
-    session_args = dict(wait_ms=wait_ms, hide=hide, timeout_ms=timeout_ms, full_page=full_page, max_screens=max_screens)
+    css = [Path(f).expanduser().read_text() for f in css_files]
+    session_args = dict(
+        wait_ms=wait_ms, hide=hide, timeout_ms=timeout_ms, full_page=full_page, max_screens=max_screens, css=css
+    )
     with PageSession(url, viewport, **session_args) as session:
         capture = session.capture
         captured = time.perf_counter()
@@ -110,6 +116,7 @@ def analyze_page(
             "screen_height": viewport.height,
         },
         "targets": measured,
+        "css": [str(f) for f in css_files],
     }
     timings = {"capture": round(captured - started, 2), "inference": round(inferred - captured, 2)}
     out = Path(out_dir) / slugify_url(url) / viewport.name
@@ -121,7 +128,7 @@ def analyze_document(
     model: SaliencyModel,
     *,
     out_dir: str | Path = "runs",
-    centerbias: str = "uniform",
+    centerbias: str = "ueyes",
     top: int = 5,
 ) -> list[dict]:
     """Analyze each page of a PDF, or a single image, as one view. Returns one record per page."""
@@ -163,6 +170,7 @@ def _analyze_document_page(path, page, index, model, out_dir, centerbias, top, s
         "device": model.device,
         "capture": {"mode": "document", "page_height": height, "screens": 1, "screen_height": height},
         "targets": [],
+        "css": [],
     }
     timings = {
         "capture": round(loaded - started, 2) if index == 0 else 0.0,
@@ -265,7 +273,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--hide", action="append", default=[], metavar="SELECTOR", help="CSS selector to hide before capture (repeatable)"
     )
     analyze.add_argument(
-        "--centerbias", choices=CENTERBIAS_KINDS, default=None, help="default: mit1003 for web pages, uniform for files"
+        "--centerbias", choices=CENTERBIAS_KINDS, default=None, help="fixation prior: ueyes (fitted on UI eye tracking, default), mit1003 (photographs), uniform (none)"
     )
     analyze.add_argument("--top", type=int, default=5, metavar="N", help="number of hotspots")
     analyze.add_argument("--device", choices=["auto", "mps", "cpu"], default="auto")
@@ -285,16 +293,68 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SELECTOR",
         help="element whose attention share to measure, as a CSS or Playwright selector (repeatable, web pages only)",
     )
+    _add_css_argument(analyze)
 
     compare = commands.add_parser("compare", help="compare two runs: target share deltas and side-by-side overlays")
     compare.add_argument("before", metavar="BEFORE_DIR", help="run directory, e.g. runs/<slug> or runs/<slug>/desktop")
     compare.add_argument("after", metavar="AFTER_DIR")
     compare.add_argument("--out", default=None, metavar="DIR", help="output directory (default: AFTER_DIR/compare)")
+
+    bench = commands.add_parser("benchmark", help="score the model against human eye tracking on UI screenshots (UEyes)")
+    bench.add_argument("--data", default="data/ueyes", metavar="DIR", help="UEyes data directory")
+    bench.add_argument("--download", action="store_true", help="fetch the needed UEyes files first (test split: about 60 MB)")
+    bench.add_argument("--split", choices=["test", "train", "all"], default="test")
+    bench.add_argument("--duration", type=int, choices=[1, 3, 7], default=3, help="seconds of viewing in the human maps")
+    bench.add_argument("--limit", type=int, default=None, metavar="N", help="score only the first N images")
+    bench.add_argument("--device", choices=["auto", "mps", "cpu"], default="auto")
+    bench.add_argument("--model", choices=MODEL_NAMES, default="deepgaze2e")
+    bench.add_argument("--out", default="runs/benchmark", metavar="DIR")
     return parser
+
+
+def _add_css_argument(parser) -> None:
+    parser.add_argument(
+        "--css",
+        action="append",
+        default=[],
+        metavar="FILE",
+        help="stylesheet injected before capture, to try a change without editing the site (repeatable, web pages only)",
+    )
+
+
+def run_benchmark_command(args) -> int:
+    if args.download:
+        print(f"fetching UEyes {args.split} split, {args.duration} s maps", file=sys.stderr)
+        download_ueyes(args.data, split=args.split, duration=args.duration)
+    try:
+        samples = load_ueyes(args.data, split=args.split, duration=args.duration)
+    except FileNotFoundError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    samples = samples[: args.limit] if args.limit else samples
+    try:
+        model = load_model(args.model, device=args.device)
+    except ModelDownloadError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 3
+    models = {
+        f"{args.model} (mit1003)": (model, "mit1003"),
+        f"{args.model} (ueyes)": (model, "ueyes"),
+        f"{args.model} (uniform)": (model, "uniform"),
+        "center prior only": (CenterBaseline("mit1003"), "mit1003"),
+        "UI prior only": (CenterBaseline("ueyes"), "ueyes"),
+    }
+    print(f"scoring {len(samples)} UEyes images ({args.split} split, {args.duration} s) on {model.device}", file=sys.stderr)
+    result = run_benchmark(samples, models, out=args.out)
+    print_table(result)
+    print(f"  -> {args.out}/results.json")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "benchmark":
+        return run_benchmark_command(args)
     if args.command == "compare":
         try:
             result = compare_runs(args.before, args.after, args.out or Path(args.after) / "compare")
@@ -305,6 +365,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     target = args.url
+    for css_file in args.css:
+        if not Path(css_file).expanduser().is_file():
+            print(f"error: CSS file not found: {css_file}", file=sys.stderr)
+            return 2
     document = is_document_path(target)
     if document and not Path(target).expanduser().is_file():
         print(f"error: file not found: {target}", file=sys.stderr)
@@ -319,11 +383,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"loaded {model.name} on {model.device} in {time.perf_counter() - loading:.1f}s", file=sys.stderr)
 
     if document:
-        if args.target:
-            print("note: --target applies to web pages only and is ignored for files", file=sys.stderr)
+        if args.target or args.css:
+            print("note: --target and --css apply to web pages only and are ignored for files", file=sys.stderr)
         try:
             records = analyze_document(
-                target, model, out_dir=args.out, centerbias=args.centerbias or "uniform", top=args.top
+                target, model, out_dir=args.out, centerbias=args.centerbias or "ueyes", top=args.top
             )
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)
@@ -341,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
                     VIEWPORTS[name],
                     model,
                     out_dir=args.out,
-                    centerbias=args.centerbias or "mit1003",
+                    centerbias=args.centerbias or "ueyes",
                     top=args.top,
                     wait_ms=args.wait,
                     hide=args.hide,
@@ -349,6 +413,7 @@ def main(argv: list[str] | None = None) -> int:
                     full_page=args.full_page,
                     max_screens=args.max_screens,
                     targets=args.target,
+                    css_files=args.css,
                 )
             except CaptureError as exc:
                 print(f"error: {exc}", file=sys.stderr)

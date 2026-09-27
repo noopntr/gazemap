@@ -97,3 +97,11 @@ def test_locate_uses_page_coordinates_below_the_fold(fixture_server):
         # element lookups scroll the page; locate must still answer in page coordinates
         session.element_at(480, 2340)
         assert session.locate("#deep") == (360, 2300, 240, 80)
+
+
+def test_css_is_injected_before_capture_and_moves_the_element(fixture_server):
+    css = "#cta { left: 60% !important; top: 10% !important; background: #0000ff !important; }"
+    with PageSession(f"{fixture_server}/button.html", VIEWPORTS["desktop"], css=[css]) as session:
+        assert session.locate("#cta") == (864, 90, 240, 80)
+        assert session.capture.image[100, 880].tolist() == [0, 0, 255]
+        assert session.element_at(480, 355).tag in ("html", "body")

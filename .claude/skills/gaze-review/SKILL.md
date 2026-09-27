@@ -30,7 +30,7 @@ For every hotspot that competes with the target, name the cause from this list a
 - **Contrast**: a strong color or brightness difference against its surroundings: a saturated button, a gradient headline, dark type on a light field, a bright image on a dark page.
 - **Size**: a large box or large type. Compare the hotspot's `bbox` and the element's rendered size with the target's box.
 - **Faces and objects**: photographs with faces, people, or recognizable objects pull fixations.
-- **Position**: anything near the middle of the viewport is helped by the center bias. Say so when a hotspot sits near the center, and when the call is close, re-run with `--centerbias uniform` and report both numbers.
+- **Position**: people scan interfaces from the top left, and gazemap's default prior (fitted on UI eye tracking) gives elements there a head start. Say so when a hotspot sits in the top-left region, and when the call is close, re-run with `--centerbias uniform` and report both numbers.
 - **Clutter**: dense text or many similar elements spread attention thin. The symptom is many small hotspots with low shares.
 - **Isolation**: an element alone in white space draws the eye even when it is small.
 
@@ -44,6 +44,6 @@ Order them by expected effect on the target's share. Each suggestion names the c
 
 - Do not write the review before the goal is known.
 - Every number in the review comes from `hotspots.json`. Do not invent or round beyond one decimal.
-- State the model caveat once: trained on photographs, a first-glance signal, a center prior toward the middle of each viewport.
+- State the model caveat once: a saliency model trained on photographs, combined with a location prior fitted on UI eye tracking; a first-glance signal, not a user test.
 - Plain Markdown, no em dashes, no dates in the file, no marketing language.
 - Do not change the site. Every fix is a proposal for the user, or for the `/gaze-fix` step if it exists.

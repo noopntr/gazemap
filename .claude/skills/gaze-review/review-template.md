@@ -37,4 +37,4 @@ Compare the target's share with the verdict table above. A change that does not 
 
 ## Caveats
 
-The heatmap is a prediction from DeepGaze IIE, a model trained on photographs, of where a first glance lands. It reacts to contrast, size, faces, text, and position, it knows nothing about intent or reading order, and its MIT1003 prior pulls attention toward the middle of each viewport. Treat the numbers as a first-impression signal to check against your own judgment, not as a measurement of users.
+The heatmap is a prediction of where a first glance lands: DeepGaze IIE, a model trained on photographs, combined with a location prior fitted on eye tracking over UI screenshots, which favours the top left. It reacts to contrast, size, faces, text, and position and knows nothing about intent. On held-out UI screenshots its top hotspot lands where people looked about two times in three. Treat the numbers as a first-impression signal to check against your own judgment, not as a measurement of users.

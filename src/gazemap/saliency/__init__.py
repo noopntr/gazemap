@@ -9,13 +9,13 @@ class SaliencyModel(Protocol):
     name: str
     device: str
 
-    def predict(self, image: np.ndarray, centerbias: str = "mit1003") -> np.ndarray:
+    def predict(self, image: np.ndarray, centerbias: str = "ueyes") -> np.ndarray:
         """Return a (height, width) map that sums to 1, at the image's own size."""
         ...
 
 
 MODEL_NAMES = ("deepgaze2e",)
-CENTERBIAS_KINDS = ("mit1003", "uniform")
+CENTERBIAS_KINDS = ("mit1003", "ueyes", "uniform")
 
 
 class ModelDownloadError(Exception):

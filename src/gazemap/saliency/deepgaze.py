@@ -104,7 +104,7 @@ class DeepGazeIIE:
         self.module.to(device)
         self.device = device
 
-    def predict(self, image: np.ndarray, centerbias: str = "mit1003") -> np.ndarray:
+    def predict(self, image: np.ndarray, centerbias: str = "ueyes") -> np.ndarray:
         height, width = image.shape[:2]
         in_w, in_h, _ = fit_long_side(width, height, self.long_side)
         resized = np.asarray(Image.fromarray(image).convert("RGB").resize((in_w, in_h), Image.BILINEAR))
@@ -130,6 +130,10 @@ class DeepGazeIIE:
     def _centerbias(self, kind: str, width: int, height: int) -> np.ndarray:
         if kind == "uniform":
             return np.zeros((height, width), dtype=np.float32)
+        if kind == "ueyes":
+            from gazemap.priors import load_prior, prior_at
+
+            return prior_at(load_prior("ueyes"), width, height)
         if kind != "mit1003":
             raise ValueError(f"unknown centerbias {kind!r} (use {' or '.join(CENTERBIAS_KINDS)})")
         template = np.load(self._centerbias_path).astype(np.float32)

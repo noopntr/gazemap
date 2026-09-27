@@ -19,7 +19,7 @@ Run gazemap commands from its checkout: `$GAZEMAP_HOME` if set, else the current
 
 ## Steps, in order
 
-1. **Find the review.** Look for `runs/<page-slug>/review.md` for the given URL; if there is none, list `runs/*/review.md` and ask which page it is for. From the review take the target selector(s) from the Goal line, the hidden selector from the "Captured" line if any, and the first suggestion unless the user named another. If no review exists, say so and offer to run `/gaze-review` first; do not invent a target.
+1. **Find the spec.** Prefer a measured redesign: if `compare/improve/<page-slug>/best.css` and its `improve.md` exist, the change to port is that stylesheet, translated into the repository's own components and styles, and the targets come from `improve.md`. Otherwise look for `runs/<page-slug>/review.md`; if there is none, list `runs/*/review.md` and ask which page it is for. From the review take the target selector(s) from the Goal line, the hidden selector from the "Captured" line if any, and the first suggestion unless the user named another. If neither exists, say so and offer `/gaze-review` or `/gaze-improve` first; do not invent a target.
 2. **Preflight the repository.** `git -C <repo> status --porcelain` must be empty and `git -C <repo> branch --show-current` must not be a detached head. A dirty tree stops the run: ask the user to commit or stash first. Never branch over uncommitted work.
 3. **Baseline on the dev server.** Run
    `uv run gazemap analyze <url> --viewport both --top 8 [--hide "<selector>"] --target "<selector>" ... --no-report --out compare/before`.

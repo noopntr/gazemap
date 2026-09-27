@@ -1,0 +1,17 @@
+gazemap
+Copyright (c) 2026 Nodo Kobakhidze. Licensed under the MIT License (see LICENSE).
+
+This repository includes src/gazemap/saliency/centerbias_ueyes.npy, a fixation prior
+derived from the UEyes dataset:
+
+  Yue Jiang, Luis A. Leiva, Hamed Rezazadegan Tavakoli, Paul R. B. Houssel,
+  Julia Kylmala, Antti Oulasvirta. UEyes: Understanding Visual Saliency across User
+  Interface Types. CHI 2023. https://doi.org/10.1145/3544548.3581096
+  Dataset: https://zenodo.org/record/8010312
+
+The UEyes dataset is licensed under Creative Commons Attribution 4.0 International
+(https://creativecommons.org/licenses/by/4.0/). The prior was computed by pooling the
+3-second fixation maps of the dataset's training split in normalized screen
+coordinates, blurring them with a Gaussian, and normalizing to a log density
+(gazemap.priors.fit_prior). No test-split data was used. The derived file is shared
+under the same CC BY 4.0 terms.

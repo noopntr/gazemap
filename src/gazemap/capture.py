@@ -105,6 +105,7 @@ class PageSession:
         timeout_ms: int = 30000,
         full_page: bool = False,
         max_screens: int = 20,
+        css: list[str] | tuple[str, ...] = (),
     ):
         self.url = url
         self.viewport = viewport
@@ -113,6 +114,7 @@ class PageSession:
         self.timeout_ms = timeout_ms
         self.full_page = full_page
         self.max_screens = max_screens
+        self.css = list(css)
         self.capture: Capture | None = None
         self._playwright = None
         self._browser = None
@@ -177,8 +179,10 @@ class PageSession:
             page.wait_for_timeout(self.wait_ms)
         for selector in self.hide:
             page.add_style_tag(content=f"{selector} {{ display: none !important; }}")
-        if self.hide:
-            page.wait_for_timeout(100)
+        for sheet in self.css:
+            page.add_style_tag(content=sheet)
+        if self.hide or self.css:
+            page.wait_for_timeout(150)
         return page
 
     def _capture(self) -> Capture:
