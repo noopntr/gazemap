@@ -147,3 +147,32 @@ def test_missing_file_is_a_clear_error(tmp_path, monkeypatch, capsys):
     code = cli.main(["analyze", str(tmp_path / "nope.pdf"), "--out", str(tmp_path), "--no-report"])
     assert code == 2
     assert "nope.pdf" in capsys.readouterr().err
+
+
+def test_targets_measure_attention_share_inside_the_element(fixture_server, tmp_path, capsys):
+    url = f"{fixture_server}/button.html"
+    record = cli.analyze_page(
+        url, VIEWPORTS["desktop"], FakeModel(), out_dir=tmp_path, targets=["#cta", "#missing"]
+    )
+    found, missing = record["targets"]
+    assert found["selector"] == "#cta"
+    assert found["found"] is True
+    assert found["bbox"] == {"x": 360, "y": 315, "width": 240, "height": 80}
+    # a gaussian with sigma 40 centred on the button keeps roughly two thirds of its mass inside
+    assert 0.55 < found["share"] < 0.8
+    assert found["hotspots"] == [1]
+    assert missing == {"selector": "#missing", "found": False, "bbox": None, "share": None, "hotspots": []}
+    assert any("#missing" in w for w in record["warnings"])
+    cli.print_summary(record)
+    out = capsys.readouterr().out
+    assert "target #cta:" in out and "% of attention" in out and "hotspot 1 inside" in out
+    assert "target #missing: not found" in out
+
+
+def test_main_passes_repeated_target_flags(fixture_server, tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "load_model", lambda name, device: FakeModel())
+    url = f"{fixture_server}/button.html"
+    code = cli.main(["analyze", url, "--target", "#cta", "--target", "body", "--out", str(tmp_path), "--no-report"])
+    assert code == 0
+    record = json.loads((tmp_path / cli.slugify_url(url) / "desktop" / "hotspots.json").read_text())
+    assert [t["selector"] for t in record["targets"]] == ["#cta", "body"]

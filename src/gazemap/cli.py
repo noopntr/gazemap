@@ -65,11 +65,13 @@ def analyze_page(
     timeout_ms: int = 30000,
     full_page: bool = False,
     max_screens: int = 20,
+    targets: list[str] | tuple[str, ...] = (),
 ) -> dict:
     """Capture a web page, predict, extract hotspots, map them to DOM elements, write outputs.
 
     In full-page mode every viewport-sized screen is predicted on its own and the
-    maps are stitched, so each screen carries equal weight.
+    maps are stitched, so each screen carries equal weight. ``targets`` are Playwright
+    selectors whose attention share is measured inside their own box.
     """
     started = time.perf_counter()
     session_args = dict(wait_ms=wait_ms, hide=hide, timeout_ms=timeout_ms, full_page=full_page, max_screens=max_screens)
@@ -88,12 +90,14 @@ def analyze_page(
             return {"tag": element.tag, "selector": element.selector, "text": element.text}
 
         hotspots = [_hotspot_record(spot, lookup(spot), viewport.height) for spot in spots]
+        measured = [_measure_target(selector, session.locate(selector), prob, spots) for selector in targets]
+        warnings = capture.warnings + [f"target not found: {t['selector']}" for t in measured if not t["found"]]
 
     meta = {
         "url": url,
         "final_url": capture.final_url,
         "http_status": capture.status,
-        "warnings": capture.warnings,
+        "warnings": warnings,
         "viewport": {"name": viewport.name, "width": viewport.width, "height": viewport.height, "mobile": viewport.is_mobile},
         "model": model.name,
         "centerbias": centerbias,
@@ -104,6 +108,7 @@ def analyze_page(
             "screens": len(capture.windows),
             "screen_height": viewport.height,
         },
+        "targets": measured,
     }
     timings = {"capture": round(captured - started, 2), "inference": round(inferred - captured, 2)}
     out = Path(out_dir) / slugify_url(url) / viewport.name
@@ -156,6 +161,7 @@ def _analyze_document_page(path, page, index, model, out_dir, centerbias, top, s
         "centerbias": centerbias,
         "device": model.device,
         "capture": {"mode": "document", "page_height": height, "screens": 1, "screen_height": height},
+        "targets": [],
     }
     timings = {
         "capture": round(loaded - started, 2) if index == 0 else 0.0,
@@ -163,6 +169,25 @@ def _analyze_document_page(path, page, index, model, out_dir, centerbias, top, s
     }
     out = Path(out_dir) / slugify_path(path) / page.name
     return _write_outputs(out, page.image, prob, spots, hotspots, meta, timings, page_started)
+
+
+def _measure_target(selector: str, box: tuple[int, int, int, int] | None, prob, spots: list[Hotspot]) -> dict:
+    """Attention share inside an element's box, plus the hotspots whose peak falls in it."""
+    if box is None:
+        return {"selector": selector, "found": False, "bbox": None, "share": None, "hotspots": []}
+    x, y, w, h = box
+    height, width = prob.shape
+    x0, y0 = max(0, x), max(0, y)
+    x1, y1 = min(width, x + w), min(height, y + h)
+    share = float(prob[y0:y1, x0:x1].sum()) if x1 > x0 and y1 > y0 else 0.0
+    inside = [spot.rank for spot in spots if x <= spot.x < x + w and y <= spot.y < y + h]
+    return {
+        "selector": selector,
+        "found": True,
+        "bbox": {"x": x, "y": y, "width": w, "height": h},
+        "share": round(share, 4),
+        "hotspots": inside,
+    }
 
 
 def _min_distance(width: int, height: int) -> int:
@@ -219,6 +244,12 @@ def print_summary(record: dict, limit: int = 5) -> None:
         text = f' "{element["text"]}"' if element and element["text"] else ""
         screen = f"  (screen {spot['screen']})" if cap["mode"] == "full_page" else ""
         print(f"  {spot['rank']:>2}  {spot['share'] * 100:5.1f}%  {where}{text}{screen}")
+    for target in record.get("targets", []):
+        if not target["found"]:
+            print(f"  target {target['selector']}: not found")
+            continue
+        inside = ", ".join(f"hotspot {r}" for r in target["hotspots"]) or "no hotspot"
+        print(f"  target {target['selector']}: {target['share'] * 100:.1f}% of attention ({inside} inside)")
     print(f"  -> {record['output_dir']}/overlay.png")
 
 
@@ -246,6 +277,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--report-dir", default=DEFAULT_REPORT_DIR, metavar="DIR", help="where the HTML report is written"
     )
     analyze.add_argument("--no-report", action="store_true", help="skip the HTML report")
+    analyze.add_argument(
+        "--target",
+        action="append",
+        default=[],
+        metavar="SELECTOR",
+        help="element whose attention share to measure, as a CSS or Playwright selector (repeatable, web pages only)",
+    )
     return parser
 
 
@@ -266,6 +304,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"loaded {model.name} on {model.device} in {time.perf_counter() - loading:.1f}s", file=sys.stderr)
 
     if document:
+        if args.target:
+            print("note: --target applies to web pages only and is ignored for files", file=sys.stderr)
         try:
             records = analyze_document(
                 target, model, out_dir=args.out, centerbias=args.centerbias or "uniform", top=args.top
@@ -293,6 +333,7 @@ def main(argv: list[str] | None = None) -> int:
                     timeout_ms=args.timeout,
                     full_page=args.full_page,
                     max_screens=args.max_screens,
+                    targets=args.target,
                 )
             except CaptureError as exc:
                 print(f"error: {exc}", file=sys.stderr)

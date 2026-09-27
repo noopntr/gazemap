@@ -234,6 +234,24 @@ class PageSession:
         page.wait_for_timeout(250)
         return int(page.evaluate(PAGE_HEIGHT_JS))
 
+    def locate(self, selector: str) -> tuple[int, int, int, int] | None:
+        """Page-coordinate box (x, y, width, height) of the first match of a Playwright selector."""
+        if self._page is None:
+            raise RuntimeError("page session is closed")
+        page = self._page
+        page.evaluate("window.scrollTo(0, 0)")
+        try:
+            locator = page.locator(selector).first
+            if locator.count() == 0:
+                return None
+            box = locator.bounding_box(timeout=2000)
+        except PlaywrightError:
+            return None
+        if box is None:
+            return None
+        scroll_y = page.evaluate("window.scrollY")
+        return (round(box["x"]), round(box["y"] + scroll_y), round(box["width"]), round(box["height"]))
+
     def element_at(self, x: int, y: int) -> ElementInfo | None:
         """Topmost DOM element under a viewport pixel, or None outside the document."""
         if self._page is None:

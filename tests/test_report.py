@@ -79,3 +79,15 @@ def test_write_report_saves_one_file_per_page_slug(tmp_path):
     path = write_report([record], tmp_path / "reports")
     assert path == tmp_path / "reports" / "example.com.html"
     assert path.read_text().startswith("<!doctype html>")
+
+
+def test_report_lists_targets_when_present(tmp_path):
+    record = make_record(tmp_path, "desktop", [hotspot(1, 0.3, "#cta", "Get started", tag="button")])
+    record["targets"] = [
+        {"selector": "#cta", "found": True, "bbox": {"x": 1, "y": 2, "width": 3, "height": 4}, "share": 0.42, "hotspots": [1]},
+        {"selector": "#missing", "found": False, "bbox": None, "share": None, "hotspots": []},
+    ]
+    html = build_report([record])
+    assert "Targets" in html
+    assert "42.0%" in html
+    assert "not found" in html

@@ -83,3 +83,17 @@ def test_above_the_fold_capture_reports_a_single_window(fixture_server):
         assert capture.image.shape == (900, 1440, 3)
         assert capture.page_height == 3000
         assert [w.scroll_y for w in capture.windows] == [0]
+
+
+def test_locate_returns_page_box_of_a_selector(fixture_server):
+    with PageSession(f"{fixture_server}/button.html", VIEWPORTS["desktop"]) as session:
+        box = session.locate("#cta")
+        assert box == (360, 315, 240, 80)
+        assert session.locate("#does-not-exist") is None
+
+
+def test_locate_uses_page_coordinates_below_the_fold(fixture_server):
+    with PageSession(f"{fixture_server}/long.html", VIEWPORTS["desktop"], full_page=True) as session:
+        # element lookups scroll the page; locate must still answer in page coordinates
+        session.element_at(480, 2340)
+        assert session.locate("#deep") == (360, 2300, 240, 80)

@@ -37,8 +37,10 @@ https://westorehub.com [desktop 1440x900, above the fold] deepgaze2e on mps, cen
   under them from the PDF text layer.
 - **A self-contained HTML report** per page: overlays, hotspot tables, attention totals per
   element, and a desktop-versus-mobile comparison.
-- **Machine-readable output** (`hotspots.json`) for scripts, CI checks, or an AI design
-  review on top.
+- **A measured answer for one element**: `--target "#cta"` reports the share of attention
+  inside your call to action, before and after a change.
+- **Machine-readable output** (`hotspots.json`) and a `/gaze-review` skill for Claude
+  Code that turns the numbers into a critique with prioritized fixes.
 
 ## Why gazemap
 
@@ -92,6 +94,7 @@ uv run gazemap analyze <url or file> [options]
 | `--report-dir DIR` | `~/Desktop/gazemap-reports` | Where the HTML report is written. |
 | `--no-report` | off | Skip the HTML report. |
 | `--timeout MS` | `30000` | Navigation timeout. |
+| `--target SELECTOR` | | Measure the attention share inside an element's box. CSS or Playwright selector, repeatable, web pages only. |
 
 Local dev servers work the same way: `uv run gazemap analyze http://localhost:3000`.
 
@@ -126,6 +129,20 @@ height and screen count, and runtime in seconds. Each hotspot has:
 Hotspots are ranked by peak height, the model's best guess at where the eye lands first.
 A broad, softer region can hold a larger `share` than a sharper peak ranked above it.
 Both numbers are reported so you can use whichever fits the question.
+
+### Measuring one element
+
+```bash
+uv run gazemap analyze https://example.com --viewport both --target "#signup" --target 'button:has-text("Search")'
+```
+
+`--target` answers "does my call to action get attention?" with a number instead of a
+guess. Each target is located in the same browser session, its box is recorded, and the
+share of predicted attention inside that box is written to `targets` in `hotspots.json`,
+along with the ranks of any hotspots whose peak falls inside it. Any CSS selector works,
+and so do Playwright's text and role selectors. A target that cannot be found is
+reported as such rather than estimated. This is the number an AI or human reviewer
+should quote, and the number to compare before and after a change.
 
 ### Full page
 
@@ -278,14 +295,33 @@ the numbers.
 `src/gazemap/saliency/__init__.py` and register it in `load_model()`. UMSI, which was
 trained on graphic designs rather than photographs, is the natural next candidate.
 
+## AI design review with `/gaze-review`
+
+The repository ships a [Claude Code](https://claude.com/claude-code) skill in
+`.claude/skills/gaze-review/`. Open the checkout in Claude Code and run:
+
+```
+/gaze-review https://example.com
+```
+
+It runs gazemap on both viewports, looks at the overlays, asks you what a first-time
+visitor should look at first (the call to action, the headline, the product), measures
+that element with `--target`, and writes `runs/<page-slug>/review.md` with a verdict
+table per viewport, what steals attention and why (contrast, size, faces, position,
+clutter, isolation), and three to six prioritized fixes, each tied to a hotspot by rank,
+element, and share, plus the command to verify them after the change. A copy lands next
+to the HTML reports in `~/Desktop/gazemap-reports/`.
+
+The split is deliberate: the saliency model supplies the numbers, the language model
+supplies the interpretation, and every claim in the review has to point at a number.
+To use the skill from any project, link or copy the folder into `~/.claude/skills/` and
+set `GAZEMAP_HOME` to the checkout.
+
 ## Roadmap
 
-- A `/gaze-review` step for AI coding assistants: read the overlay and the JSON, ask what
-  the page is for, and write a critique with prioritized, concrete suggestions tied to
-  the hotspot data.
-- A `/gaze-fix` step: propose a code change for the top suggestion, apply it on a branch
-  after approval, re-run gazemap on the dev server, and show before and after with the
-  change in attention share on the target element.
+- A `/gaze-fix` step: propose a code change for the top suggestion in `review.md`, apply
+  it on a branch after approval, re-run gazemap on the dev server, and show before and
+  after with the change in the target's attention share.
 - UMSI as a second model, for graphic designs, documents, and mobile UI.
 
 ## Models and licenses
@@ -321,7 +357,7 @@ If you use the model in published work, cite the DeepGaze IIE paper:
 ## Development
 
 ```bash
-uv run pytest                  # 55 tests, about 40 s with weights and Chromium present
+uv run pytest                  # 60 tests, about 45 s with weights and Chromium present
 uv run pytest -m "not smoke"   # unit and capture tests only, no model needed
 ```
 

@@ -93,6 +93,20 @@ def _viewport_section(record: dict) -> str:
         )
     out.append("</table>")
 
+    targets = record.get("targets") or []
+    if targets:
+        out.append("<h3>Targets</h3><table><tr><th>Selector</th><th class='num'>Share</th><th>Hotspots inside</th></tr>")
+        for target in targets:
+            if target["found"]:
+                inside = ", ".join(str(r) for r in target["hotspots"]) or "none"
+                out.append(
+                    f"<tr><td><code>{e(target['selector'])}</code></td>"
+                    f"<td class='num'>{target['share'] * 100:.1f}%</td><td class='muted'>{e(inside)}</td></tr>"
+                )
+            else:
+                out.append(f"<tr><td><code>{e(target['selector'])}</code></td><td colspan='2' class='muted'>not found</td></tr>")
+        out.append("</table>")
+
     rows = attention_by_element(record)
     if rows:
         out.append("<h3>Attention by element</h3><table><tr><th class='num'>Share</th><th>Element</th>"
